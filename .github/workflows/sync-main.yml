@@ -1,0 +1,56 @@
+name: Sync main from release every Friday
+
+on:
+  schedule:
+    - cron: '0 0 * * 5'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Preserve main's workflow file
+        run: |
+          # Save main's version of the workflow before sync
+          git checkout main
+          cp .github/workflows/sync-main.yml /tmp/sync-main.yml.bak
+
+      - name: Fast-forward main to match release
+        run: |
+          git merge --ff-only origin/release
+          git push origin main
+
+      - name: Restore protected workflow file if overwritten
+        run: |
+          CURRENT=$(cat .github/workflows/sync-main.yml)
+          BACKUP=$(cat /tmp/sync-main.yml.bak)
+          if [ "$CURRENT" != "$BACKUP" ]; then
+            echo "⚠️ Workflow file was changed in release — restoring main version"
+            cp /tmp/sync-main.yml.bak .github/workflows/sync-main.yml
+            git add .github/workflows/sync-main.yml
+            git commit -m "ci: restore protected sync-main.yml [skip ci]"
+            git push origin main
+          else
+            echo "✅ Workflow file unchanged — no restore needed"
+          fi
+
+      - name: Verify histories match
+        run: |
+          RELEASE=$(git rev-parse origin/release)
+          MAIN=$(git rev-parse main)
+          echo "release: $RELEASE"
+          echo "main:    $MAIN"
